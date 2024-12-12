@@ -51,7 +51,7 @@ const UserAccount = () => {
             View Posts
           </button>
           </Link>
-          <button onClick={happy}>{store.username}</button>
+          {/* <button onClick={happy}>{store.username}</button> */}
         </div>
       </div>
     </div>

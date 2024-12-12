@@ -27,6 +27,12 @@ from datetime import timezone
 from flask_jwt_extended import set_access_cookies
 from flask_jwt_extended import unset_jwt_cookies
 from flask_cors import CORS, cross_origin
+from sqlalchemy import text
+from sqlalchemy.orm.attributes import flag_modified
+from sqlalchemy import exc
+from sqlalchemy import create_engine
+
+
 
 
 
@@ -49,13 +55,17 @@ app.config["JWT_SECRET_KEY"] = "DWAYNETHEBOSSMADETHIS"  # Change this!
 jwt = JWTManager(app)
 
 TOKEN_INFO = "token_info"
-CORS(app, supports_credentials=True)
+CORS(app, supports_credentials=True, origins=["http://localhost:3000"])
 # app.config['CORS_HEADERS'] = 'Content-Type'
 app.config['SQLALCHEMY_DATABASE_URI'] = "sqlite:///site.db"
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=1)
-app.config["JWT_COOKIE_SECURE"] = False
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=10)
+app.config["JWT_COOKIE_SAMESITE"] = "None"  # or "Lax", depending on requirements
+app.config["JWT_COOKIE_SECURE"] = True  # Set to True for HTTPS only
 app.config["JWT_COOKIE_DOMAIN"] = "127.0.0.1"
+# app.config["JWT_TOKEN_LOCATION"] = ["cookies"]
+engine = create_engine(app.config['SQLALCHEMY_DATABASE_URI'], isolation_level="READ COMMITTED")
+
 
 db = SQLAlchemy(app)
 ma = Marshmallow(app)
@@ -64,8 +74,6 @@ ma = Marshmallow(app)
 jwt_redis_blocklist = redis.StrictRedis(
     host="localhost", port=5000, db=0, decode_responses=True
 )
-
-
 
 @app.route('/')
 def something():
@@ -87,57 +95,18 @@ def create_usertoken():
     password = request.json.get("password", None)
 
 
-
-
-
-
-# @app.route('/redirect')
-# def redirectPage():
-#     sp_oauth = create_spotify_oauth()
-#     session.clear()
-#     code = request.args.get('code')
-#     token_info = sp_oauth.get_access_token(code)
-#     session[TOKEN_INFO] = token_info
-#     return redirect(url_for('getTracks', _external=True))
-
-
-
 @app.route('/getTracks')
 def getTracks():
     track = spotify.track("2s8G3qj3sGDZq8hwt8COnQ?si=9dbeddf05df94afa")
     print(track.name)
     return jsonify(track.name)
 
-# def get_token():
-#     token_info = session.get(TOKEN_INFO)
-#     if not token_info:
-#         raise "exception"
-#     now = int(time.time())
-
-#     is_expired = token_info['expires_at'] - now < 60
-#     if (is_expired):
-#         sp_oauth = create_spotify_oauth()
-#         token_info = sp_oauth.refresh_access_token(token_info['refresh-token'])
-#     return token_info
-
-# def create_spotify_oauth():
-#     return SpotifyOAuth(
-#         client_id= "bbdba9d33a94452d99c8ad6265848131",
-#         client_secret= "45481fed0ca64752b897bc8b05fd9519",
-#         redirect_uri= url_for('redirectPage', _external=True),
-#         scope="user-library-read")
-
-
-
-
-
-
 
 
 class User(db.Model, SerializerMixin):
     serialize_only = ('id','username','password','playlists')
 
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.Integer, primary_key=True, index=True)
     username = db.Column(db.String(20), unique=True, nullable=False)
     image_file = db.Column(db.String(20), nullable=False, default='default.jpg')
     password = db.Column(db.String(60), nullable=False)
@@ -152,16 +121,20 @@ class User(db.Model, SerializerMixin):
         return compare_digest(password, self.password)
 
 class Playlist(db.Model, SerializerMixin):
-    serialize_only = ('id','name','playlist','likes','date_posted', 'user_id', 'author')
+    serialize_only = ('id','name','playlist','likes','date_posted', 'user_id', 'author', 'liked_by')
     # serialize_rules = ()
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), unique=True, nullable=False)
+    id = db.Column(db.Integer, primary_key=True, index=True)
+    name = db.Column(db.String(100), unique=True, nullable=False, index=True)
     playlist = db.Column(db.String(200), unique=True, nullable=False)
-    date_posted = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    likes = db.Column(db.Integer, nullable = False)
+    date_posted = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    likes = db.Column(db.Integer, nullable = False, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    username = db.Column(db.String(200), unique=False, nullable=False)
+    username = db.Column(db.String(200), unique=False, nullable=False, index=True)
+    liked_by = db.Column(db.PickleType, default=list)  # List of user IDs who liked the playlist
 
+    __table_args__ = (
+        db.Index('idx_username_likes_name_date', 'username', 'likes', 'name', 'date_posted'),
+    )
 
 
     def __init__(self, playlist, likes,name, user_id, username):
@@ -171,12 +144,17 @@ class Playlist(db.Model, SerializerMixin):
         self.user_id = user_id
         self.username = username
 
-
-
+class Like(db.Model):
+    __tablename__ = 'like'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    playlist_id = db.Column(db.Integer, db.ForeignKey('playlist.id'), nullable=False)
+    # Ensure a user can only like a playlist once by enforcing uniqueness
+    __table_args__ = (db.UniqueConstraint('user_id', 'playlist_id', name='unique_user_playlist_like'),)
 
 class PlaylistSchema(ma.Schema):
     class Meta:
-        fields = ('id','playlist','date_posted', 'likes', 'name', 'user_id', 'username')
+        fields = ('id','playlist','date_posted', 'likes', 'name', 'user_id', 'username', 'liked_by')
 
 class UserSchema(ma.Schema):
     class Meta:
@@ -194,10 +172,6 @@ def refresh_expiring_jwts(response):
         exp_timestamp = get_jwt()["exp"]
         now = datetime.now(timezone.utc)
         target_timestamp = datetime.timestamp(now + timedelta(seconds=10))
-        print("target")
-        print(target_timestamp)
-        print("exp")
-        print(exp_timestamp)
         if target_timestamp > exp_timestamp:
             id = get_jwt_identity()
             user = User.query.get(id)
@@ -265,9 +239,77 @@ def create_account():
     set_access_cookies(response, access_token)
     return response
 
+# Endpoint to get like status
+@app.route('/likeStatus/<int:playlist_id>', methods=['GET'])
+def get_like_status(playlist_id):
+    # playlist = Playlist.query.get(playlist_id)
+    playlist = db.session.get(Playlist, playlist_id)
+    if not playlist:
+        return jsonify({'error': 'Playlist not found'}), 404
+
+    user_id = request.args.get('userId')  # Pass user ID as query parameter
+    is_liked = user_id in playlist.liked_by if user_id else False
+    return jsonify({'isLiked': is_liked, 'likes': playlist.likes})
 
 
 
+
+@app.route('/like/<int:playlist_id>', methods=['POST'])
+@jwt_required()
+def like_playlist(playlist_id):
+    playlist = Playlist.query.get(playlist_id)
+    if not playlist:
+        return jsonify({'error': 'Playlist not found'}), 404
+
+
+    if playlist.liked_by is None:
+        playlist.liked_by = []
+
+    try:
+
+        if current_user.id not in playlist.liked_by:
+            playlist.liked_by.append(current_user.id)
+            
+            flag_modified(playlist, "liked_by")
+            
+            playlist.likes += 1
+
+            db.session.commit()
+
+            return jsonify({'message': 'Playlist liked successfully', 'likes': playlist.likes, 'liked_by': playlist.liked_by}), 200
+        else:
+            return jsonify({'error': 'Playlist already liked by this user'}), 400
+
+    except exc.IntegrityError as e:
+        db.session.rollback()
+        return jsonify({'error': 'There was an error processing your request. Please try again.'}), 500
+
+@app.route('/unlike/<int:playlist_id>', methods=['POST'])
+@jwt_required()
+def unlike_playlist(playlist_id):
+    playlist = Playlist.query.get(playlist_id)
+    if not playlist:
+        return jsonify({'error': 'Playlist not found'}), 404
+
+
+    try:
+
+        if current_user.id in playlist.liked_by:
+            playlist.liked_by.remove(current_user.id)
+            
+            flag_modified(playlist, "liked_by")
+            
+            playlist.likes -= 1
+
+            db.session.commit()
+
+            return jsonify({'message': 'Playlist liked successfully', 'likes': playlist.likes, 'liked_by': playlist.liked_by}), 200
+        else:
+            return jsonify({'error': 'Playlist already liked by this user'}), 400
+
+    except exc.IntegrityError as e:
+        db.session.rollback()
+        return jsonify({'error': 'There was an error processing your request. Please try again.'}), 500
 
 @app.route("/who_am_i", methods=["GET"])
 @jwt_required(locations='cookies')
@@ -278,14 +320,6 @@ def protected():
         username=current_user.username,
     )
 
-# @app.route("/getUserfromPlaylist", methods=["GET"])
-# @jwt_required()
-# def protected():
-#     # We can now access our sqlalchemy User object via `current_user`.
-#     return jsonify(
-#         id=current_user.id,
-#         username=current_user.username,
-#     )
 
 
 
@@ -293,7 +327,6 @@ def protected():
 
 playlist_schema = PlaylistSchema()
 playlists_schema = PlaylistSchema(many=True)
-
 
 
 @app.route('/get', methods=['GET'])
@@ -308,22 +341,20 @@ def get_Image(id):
     # sp = spotipy.Spotify(auth=token)
     # pl_id = 'spotify:playlist:2glOoKv4sZJtCAHqriiEkh'
     offset = 0
-    playlist = Playlist.query.get(id).playlist
+    playlist = db.session.get(Playlist, id).playlist
     playlist_final = playlist[34:56]
     
-    print(playlist_final)
 
     Image = spotify.playlist_cover_image(playlist_final)
-    print(Image[0].url)
     return jsonify(Image[0].url)
 
 
 
 @app.route('/getOriginalName/<id>')
 def get_original_name(id):
-    playlist = Playlist.query.get(id)
+    playlist = db.session.get(Playlist, id)
 
-    playlist = Playlist.query.get(id).playlist
+    playlist = db.session.get(Playlist, id).playlist
     playlist_final = playlist[34:56]
 
     name = spotify.playlist(playlist_final,
@@ -340,11 +371,10 @@ def get_original_name(id):
     return jsonify(result)
 
 @app.route('/getURL/<id>')
-@jwt_required(locations='cookies')
 def get_url(id):
-    name = Playlist.query.get(id).name
-    date = Playlist.query.get(id).date_posted.strftime("%m/%d/%Y, %H:%M")
-    playlist = Playlist.query.get(id).playlist
+    name = db.session.get(Playlist, id).name
+    date = db.session.get(Playlist, id).date_posted.strftime("%m/%d/%Y, %H:%M")
+    playlist = db.session.get(Playlist, id).playlist
 
     return jsonify({
         "name": name,
@@ -353,20 +383,13 @@ def get_url(id):
     })
 
 
-@app.route('/myAccount/posts')
-@jwt_required(locations='cookies')
-def view_posts():
-
-    print(User.query.get(1).posts)
-
-
 @app.route('/playlist/<id>')
 def get_playlist(id):
-    playlist_object = Playlist.query.get(id)
+    # playlist_object = Playlist.query.get(id)
     arr = []
     test = []
 
-    playlist = Playlist.query.get(id).playlist
+    playlist = db.session.get(Playlist, id).playlist
     playlist_final = playlist[34:56]
 
     playlist = spotify.playlist_items(playlist_final,
@@ -376,21 +399,12 @@ def get_playlist(id):
                                     limit = 100,
                                     offset = 0)
 
-    
-    
-                                    
-    # for i in range(len(playlist['items'])):
-    #     print(playlist['items'][i]['track']['name'])
-
 
     for i in range(len(playlist['items'])):
         print(playlist['items'][i]['track']['artists'])
         arr.append(playlist['items'][i]['track']['artists'])
 
-    # for i in range(len(arr)):
-    #     for j in range(len(arr[i])):
-    #         test.append(arr[i][j]['name'])
-        
+
 
         print(arr)
 
@@ -399,21 +413,50 @@ def get_playlist(id):
 
     return jsonify(songs= result)
 
-
-@app.route('/delete/<id>', methods = ['POST'])
+@app.route('/delete/<id>', methods=['POST'])
 def delete_playlist(id):
-    playlist = Playlist.query.get(id)
+    try:
+        delete_query = text("DELETE FROM playlist WHERE id = :id")
+        
+        db.session.execute(delete_query, {'id': id})
+        
+        db.session.commit()
 
-    db.session.delete(playlist)
-    db.session.commit()
+        return jsonify({'message': 'Playlist deleted successfully'}), 200
 
-    all_playlists = Playlist.query.all()
-    results = playlists_schema.dump(all_playlists)
-    return jsonify(results)
+    except exc.SQLAlchemyError as e:
+        db.session.rollback()
+        
+        print(f"Error deleting playlist with ID {id}: {e}")
+        
+        return jsonify({'error': 'An error occurred while deleting the playlist'}), 500
 
+@app.route('/editPlaylistName/<id>', methods=['POST'])
+def edit_playlist(id):
+    new_name = request.get_json().get("new_name")
+    
+    if not new_name:
+        return jsonify({'error': 'New name is required'}), 400
 
-@app.route('/add', methods = ['POST'])
-@jwt_required(locations='cookies')
+    try:
+
+        playlist = db.session.get(Playlist, id)
+        if not playlist:
+            return jsonify({'error': 'Playlist not found'}), 404
+
+        edit_query = text("UPDATE playlist SET name = :new_name WHERE id = :id")
+        db.session.execute(edit_query, {'id': id, 'new_name': new_name})
+
+        db.session.commit()
+
+        return jsonify({'message': 'Playlist edited successfully'}), 200
+
+    except exc.IntegrityError as e:
+        db.session.rollback()
+        return jsonify({'error': 'There was an error processing your request. Please try again.'}), 500
+
+@app.route('/add', methods=['POST'])
+@jwt_required()
 def add_playlist():
     playlist = request.json['playlist']
     name  = request.json['name']
@@ -426,18 +469,12 @@ def add_playlist():
     db.session.add(playlists)
     db.session.commit()
 
-    # return jsonify ( {
-    #     "name": playlists.name,
-    #     "likes": playlists.likes,
-    #     "playlist": playlists.playlist,
-    #     "author": current_user.username
-    # }
-    # )
 
-    return jsonify(results)
+
+    # return jsonify(results)
 
 @app.route('/getPlaylistsFromUser', methods=['GET'])
-@jwt_required(locations='cookies')
+@jwt_required()
 def get_user_playlists():
     id = current_user.id
     all_playlists = User.query.get(id).playlists
@@ -445,15 +482,97 @@ def get_user_playlists():
     return jsonify(results)
 
 
-@app.before_first_request
-def create_tables():
-    db.drop_all()
+@app.route('/filter_playlists', methods=['GET'])
+def filter_playlists():
+    # Retrieve filter parameters from the query string
+    date_range = request.args.get('date_range')  # Date in YYYY-MM-DD format
+    likes = request.args.get('likes')  # Integer for the number of likes
+    playlist_name = request.args.get('playlist_name')  # Playlist ID (can be optional)
+    name = request.args.get('username')  # Name of the playlist (can be partial)
+        
+    # Start the query with all playlists
+    query = Playlist.query
+    print(date_range)
+
+    # Filter by date if provided
+    if date_range:
+        try:
+            # Split the date range into start and end dates
+            start_date_str, end_date_str = date_range.split(' to ')
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d')  # Convert the start date to a datetime object
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d')  # Convert the end date to a datetime object
+            print(start_date)
+            print(end_date)
+
+            # Apply the date range filter to the query
+            query = query.filter(Playlist.date_posted >= start_date, Playlist.date_posted <= end_date)
+        except ValueError:
+            return jsonify({'error': 'Invalid date range format, use YYYY-MM-DD to YYYY-MM-DD'}), 400
+
+    # Filter by number of likes if provided
+    if likes:
+        try:
+            likes = int(likes)
+            query = query.filter(Playlist.likes >= likes)
+        except ValueError:
+            return jsonify({'error': 'Likes must be an integer'}), 400
+
+    # Filter by playlist ID if provided
+    if playlist_name:
+        query = query.filter(Playlist.name.ilike(f'%{playlist_name}%'))
+
+    # Filter by playlist name if provided (case-insensitive partial match)
+    if name:
+        query = query.filter(Playlist.username.ilike(f'%{name}%'))
+
+    # Execute the query and return the results
+    playlists = query.all()
+
+    # If no playlists found, return an error
+    if not playlists:
+        return jsonify({'message': 'No playlists found matching the criteria'})
+
+    # Serialize the playlists to return them in a JSON-friendly format
+    playlist_data = []
+    for playlist in playlists:
+        playlist_data.append({
+            'id': playlist.id,
+            'name': playlist.name,
+            'likes': playlist.likes,
+            'created_at': playlist.date_posted,
+            'username': playlist.username
+        })
+
+    return jsonify(playlist_data), 200
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
+@app.route('/myAccount/posts')
+@jwt_required(locations='cookies')
+def view_posts():
+
+    print(User.query.get(1).posts)
+
+
+
+with app.app_context():
     db.create_all()
-    db.session.add(User(username="test", password="test", image_file="default.jpg"))
-    db.session.add(User(username="dwayne", password="test", image_file="default.jpg"))
-    db.session.commit()
+
+
+
+
+
+
+# @app.before_first_request
+# def create_tables():
+#     db.drop_all()
+#     db.create_all()
+#     db.session.add(User(username="test", password="test", image_file="default.jpg"))
+#     db.session.add(User(username="dwayne", password="test", image_file="default.jpg"))
+#     db.session.commit()
+
+
 
     
-if __name__ == '__main__' :
-    app.run(debug=True)
 

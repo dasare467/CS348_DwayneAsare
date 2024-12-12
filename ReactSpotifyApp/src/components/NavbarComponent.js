@@ -45,7 +45,6 @@ export const NavbarComponent = () => {
             </Navbar.Collapse>
         </Navbar>
     );
-    
   } else {
     return (
       <Navbar expand="lg" variant="dark" className="color-nav">

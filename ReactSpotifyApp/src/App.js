@@ -18,6 +18,8 @@ import CreateAccount from './Pages/CreateAccount';
 import UserAccount from './Pages/UserAccount';
 import ViewPosts from './Pages/ViewPosts'
 import { Context } from './store/appContext';
+import GenerateReportPage from './Pages/GenerateReportPage';
+
 
 
 
@@ -52,9 +54,9 @@ const App = () => {
         return (
           <div className="min-h-screen bg-blue-200">     
               
-          <BrowserRouter>``
+          <BrowserRouter>
           {
-            sessionStorage.getItem("token") ? <NavbarComponent /> : <p>hi</p>
+            sessionStorage.getItem("token") ? <NavbarComponent /> : <NavbarComponent />
           }
           
           <Routes>
@@ -66,6 +68,8 @@ const App = () => {
            <Route path = '/createAccount' element={<CreateAccount />}/>
            <Route path = '/myAccount' element={<UserAccount />}/>
            <Route path = '/viewUserPlaylists' element={<ViewPosts />}/>
+           <Route path = '/report' element={<GenerateReportPage />}/>
+
           </Routes>
           </BrowserRouter>
           </div>

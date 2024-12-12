@@ -38,7 +38,7 @@ deactivate () {
 # unset irrelevant variables
 deactivate nondestructive
 
-VIRTUAL_ENV="C:\Users\TheGa\OneDrive\Documents\Personal Projects\SpotifyReactApp\flask-server\venv"
+VIRTUAL_ENV="C:\Users\TheGa\OneDrive\Documents\Personal Projects\spotifyreactapp\flask-server\venv"
 export VIRTUAL_ENV
 
 _OLD_VIRTUAL_PATH="$PATH"

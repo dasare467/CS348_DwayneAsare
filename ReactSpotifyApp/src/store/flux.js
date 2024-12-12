@@ -118,7 +118,7 @@ const getState = ({ getStore, getActions, setStore }) => {
                     headers: {
                         "Content-Type": "application/json",
 						credentials: 'same-origin',
-						"X-CSRF-TOKEN": `${sessionStorage.getItem("token")}`
+						Authorization: 'Bearer ' + `${sessionStorage.getItem("token")}`
                     },
                     body: JSON.stringify({
                         playlist: playlist,
@@ -206,6 +206,71 @@ const getState = ({ getStore, getActions, setStore }) => {
 				}
 			},
 
+			deletePlaylist: async (id) => {
+
+				const store = getStore();
+
+				var Rtoken = store.token
+				
+                const opts = {
+                    method: "POST",
+					credentials: 'include',
+                    headers: {
+                        "Content-Type": "application/json",
+						credentials: 'same-origin',
+						Authorization: 'Bearer ' + `${sessionStorage.getItem("token")}`
+                    }
+                };
+
+                try {
+                    const resp = await fetch(`http://127.0.0.1:5000/delete/${id}`, opts)
+                    if (resp.status !== 200) {
+                        alert("There has been some erorr!");
+                        return false;
+                    }
+
+					return true
+                }
+                catch (error) {
+                    console.error("There has been an error while loggining")
+                }
+
+            },
+
+			editPlaylistName: async (id, newName) => {
+
+				const store = getStore();
+
+				var Rtoken = store.token
+				
+                const opts = {
+                    method: "POST",
+					credentials: 'include',
+                    headers: {
+                        "Content-Type": "application/json",
+						credentials: 'same-origin',
+						Authorization: 'Bearer ' + `${sessionStorage.getItem("token")}`
+                    },
+					body: JSON.stringify({
+                        new_name: newName,
+                    })
+                };
+
+                try {
+                    const resp = await fetch(`http://127.0.0.1:5000/editPlaylistName/${id}`, opts)
+                    if (resp.status !== 200) {
+                        alert("There has been some erorr!");
+                        return false;
+                    }
+
+					return true
+                }
+                catch (error) {
+                    console.error("There has been an error while loggining")
+                }
+
+            },
+
 			logout: async () => {
 				
 				const opts = {
@@ -263,9 +328,12 @@ const getState = ({ getStore, getActions, setStore }) => {
                     method: "GET",
 					mode: 'cors',
 					credentials: 'include',
+					
                     headers: {
                         "Content-Type": "application/json",
-						"Access-Control-Allow-Credentials" : "true"
+						"Access-Control-Allow-Credentials" : "true",
+						credentials: 'same-origin',
+						Authorization: 'Bearer ' + `${sessionStorage.getItem("token")}`
                     }
                 };
 
@@ -286,7 +354,73 @@ const getState = ({ getStore, getActions, setStore }) => {
                 catch (error) {
                     console.error("There has been an error while loggining")
                 }
-			}
+			},
+
+			likePlaylist: async (userId, playlistId) => {
+				const opts = {
+					method: "POST",
+					mode: "cors",
+					credentials: "include",
+					headers: {
+						"Content-Type": "application/json",
+						"Access-Control-Allow-Credentials": "true",
+						Authorization: "Bearer " + `${sessionStorage.getItem("token")}`
+					},
+					body: JSON.stringify({
+						user_id: userId,
+						playlist_id: playlistId
+					})
+				};
+			
+				try {
+					const resp = await fetch("http://127.0.0.1:5000/like", opts);
+					if (resp.status !== 200) {
+						const errorData = await resp.json();
+						alert(errorData.message || "There has been an error liking the playlist!");
+						return false;
+					}
+			
+					const data = await resp.json();
+					console.log("Successfully liked the playlist:", data);
+					return true; // Indicate success
+				} catch (error) {
+					console.error("Error liking the playlist:", error);
+					return false;
+				}
+			},
+			isPlaylistLiked: async (userId, playlistId) => {
+				const opts = {
+					method: "GET",
+					mode: "cors",
+					credentials: "include",
+					headers: {
+						"Content-Type": "application/json",
+						"Access-Control-Allow-Credentials": "true",
+						Authorization: "Bearer " + `${sessionStorage.getItem("token")}`
+					}
+				};
+			
+				try {
+					const resp = await fetch(`http://127.0.0.1:5000/isLiked/${userId}/${playlistId}`, opts);
+					if (resp.status !== 200) {
+						console.error("Failed to check if playlist is liked.");
+						return false;
+					}
+			
+					const data = await resp.json();
+					console.log("Playlist liked status:", data);
+					return data.isLiked; // Return true or false based on backend response
+				} catch (error) {
+					console.error("Error checking if playlist is liked:", error);
+					return false;
+				}
+			},
+			getPlaylistLikes: async (id) => {
+				const opts = { method: "GET", headers: { "Content-Type": "application/json" } };
+				const response = await fetch(`http://127.0.0.1:5000/likes/${id}`, opts);
+				return response.json();
+			  }
+				
 		}
 	};
 };

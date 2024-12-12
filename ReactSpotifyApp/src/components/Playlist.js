@@ -41,7 +41,7 @@ const Home = () => {
               return (
                 <div key = {playlist.id}>
                 <Link to ={`/playlists/${playlist.id}`}>
-                <Card name={playlist.name} id={playlist.id} username={playlist.username}> </Card>
+                <Card name={playlist.name} id={playlist.id} username={playlist.username} likes={playlist.likes}> </Card>
                 </Link>
                 </div>
               )

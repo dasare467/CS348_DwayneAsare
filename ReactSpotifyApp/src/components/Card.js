@@ -25,11 +25,14 @@ const Card = (props) => {
 
     return (
       
-      <div class="flex-2 rounded overflow-hidden shadow-lg w-95 m-4">
+      <div class="flex-2 rounded overflow-hidden shadow-lg w-95 m-5">
       <img class="w-full" src={imageURL} alt="Mountain"></img>
       <div class="px-4 py-4">
         <div class="font-bold text-xl mb-2">{props.name}</div>
         <p className='font-light text-sm mx-auto'>Posted by {props.username}</p>
+        <p className='font-light text-sm mx-auto'>Likes: {props.likes}</p>
+
+        
 
       </div>
     </div>
